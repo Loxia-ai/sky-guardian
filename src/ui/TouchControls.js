@@ -157,23 +157,30 @@ export class TouchControls {
    *     screen.orientation is missing and window.orientation may be 0)
    */
   _getScreenAngle() {
-    // 1. Standard API (Android, desktop — NOT supported on iOS Safari)
-    if (screen.orientation && typeof screen.orientation.angle === 'number') {
+    // Detect landscape from multiple sources, most reliable first.
+    // IMPORTANT: Some APIs (screen.orientation on iPadOS) may exist but
+    // return 0 even in landscape. We only trust non-zero values from
+    // angle-based APIs, and fall through to viewport check otherwise.
+
+    // 1. screen.orientation.angle — reliable on Android/desktop
+    //    Only trust if non-zero (0 could be portrait OR broken)
+    if (screen.orientation && screen.orientation.angle) {
       return screen.orientation.angle;
     }
 
-    // 2. Legacy API — iOS Safari supports this and returns ±90 in landscape
+    // 2. window.orientation — legacy, works on most iOS
+    //    Only trust if non-zero
     if (typeof window.orientation === 'number' && window.orientation !== 0) {
       return window.orientation < 0 ? window.orientation + 360 : window.orientation;
     }
 
-    // 3. Viewport / matchMedia heuristic for iPadOS
-    //    Check EVERY call (not cached) so it adapts to rotation
-    const isLandscape = window.matchMedia
-      ? window.matchMedia('(orientation: landscape)').matches
-      : window.innerWidth > window.innerHeight;
+    // 3. Viewport dimensions — most reliable cross-platform fallback
+    //    Works on ALL devices, checked every frame
+    if (window.innerWidth > window.innerHeight) {
+      return 90; // landscape (can't distinguish left/right)
+    }
 
-    return isLandscape ? 90 : 0;
+    return 0; // portrait
   }
 
   _onOrientation(e) {
