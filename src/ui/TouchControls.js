@@ -1,10 +1,14 @@
 /**
  * On-screen touch controls for mobile devices.
- * Provides: accelerometer-based steering, thumb buttons for weapons & throttle.
+ * Provides: accelerometer-based steering + throttle, thumb buttons for weapons & altitude.
  *
- * Layout (landscape orientation):
- *   Left side:  Throttle Up / Throttle Down buttons
- *   Right side: FIRE (cannon) button (large) + MISSILE button + ALT Up/Down
+ * Accelerometer mapping:
+ *   Tilt left/right (gamma)  → turn left/right
+ *   Push forward / pull back (beta) → throttle up / throttle down
+ *
+ * Touch buttons:
+ *   Left side:  Altitude Up / Down
+ *   Right side: FIRE (cannon, large) + MISSILE
  */
 export class TouchControls {
   constructor(game) {
@@ -15,29 +19,31 @@ export class TouchControls {
     this.buttons = {
       fire: false,
       missile: false,
-      throttleUp: false,
-      throttleDown: false,
       altUp: false,
       altDown: false
     };
 
     // Single-frame triggers (like keyPressed — true for one frame only)
     this._justPressed = {
-      missile: false,
-      throttleUp: false,
-      throttleDown: false
+      missile: false
     };
 
     // Accelerometer state
-    this.tiltX = 0; // left/right tilt (-1 to 1)
-    this.tiltY = 0; // forward/back tilt
+    this.tiltX = 0; // left/right tilt (-1 to 1) → turn
+    this.tiltY = 0; // forward/back tilt (-1 to 1) → throttle
     this.calibrationBeta = null; // neutral tilt angle
     this.calibrationGamma = null;
     this.hasAccelerometer = false;
     this._orientationHandler = null;
 
-    // Track active touches per button to handle multi-touch
-    this._activeTouches = new Map(); // touchId -> buttonName
+    // Throttle from tilt: discrete triggers with cooldown
+    this._throttleTiltCooldown = 0;
+    this._lastThrottleTrigger = 0; // timestamp
+    this._throttleUpTriggered = false;
+    this._throttleDownTriggered = false;
+
+    // Pause
+    this.pauseRequested = false;
   }
 
   async init() {
@@ -84,24 +90,44 @@ export class TouchControls {
     const relGamma = gamma - this.calibrationGamma;
     const relBeta = beta - this.calibrationBeta;
 
-    // Map to -1..1 range with dead zone
-    // Gamma (left/right): ±30° = full turn
-    const deadZone = 3; // degrees
-    const maxAngle = 30;
+    // === TURN: Gamma (left/right tilt) ===
+    // ±25° = full turn, 3° dead zone
+    const turnDeadZone = 3;
+    const turnMaxAngle = 25;
 
-    if (Math.abs(relGamma) < deadZone) {
+    if (Math.abs(relGamma) < turnDeadZone) {
       this.tiltX = 0;
     } else {
-      const adjusted = relGamma - Math.sign(relGamma) * deadZone;
-      this.tiltX = Math.max(-1, Math.min(1, adjusted / (maxAngle - deadZone)));
+      const adjusted = relGamma - Math.sign(relGamma) * turnDeadZone;
+      this.tiltX = Math.max(-1, Math.min(1, adjusted / (turnMaxAngle - turnDeadZone)));
     }
 
-    // Beta (forward/back) — could be used for altitude later
-    if (Math.abs(relBeta) < deadZone) {
+    // === THROTTLE: Beta (push forward / pull back) ===
+    // Push phone forward (top away from you) = positive beta change = throttle UP
+    // Pull phone back (top toward you) = negative beta change = throttle DOWN
+    // Use a threshold to trigger discrete throttle notch changes
+    const throttleDeadZone = 5;  // degrees — ignore small tilts
+    const throttleThreshold = 12; // degrees — trigger a notch change
+
+    if (Math.abs(relBeta) < throttleDeadZone) {
       this.tiltY = 0;
     } else {
-      const adjusted = relBeta - Math.sign(relBeta) * deadZone;
-      this.tiltY = Math.max(-1, Math.min(1, adjusted / (maxAngle - deadZone)));
+      const adjusted = relBeta - Math.sign(relBeta) * throttleDeadZone;
+      this.tiltY = Math.max(-1, Math.min(1, adjusted / (30 - throttleDeadZone)));
+    }
+
+    // Generate discrete throttle triggers when tilt exceeds threshold
+    const now = Date.now();
+    const cooldownMs = 400; // minimum ms between throttle notch changes
+
+    if (now - this._lastThrottleTrigger > cooldownMs) {
+      if (relBeta > throttleThreshold) {
+        this._throttleUpTriggered = true;
+        this._lastThrottleTrigger = now;
+      } else if (relBeta < -throttleThreshold) {
+        this._throttleDownTriggered = true;
+        this._lastThrottleTrigger = now;
+      }
     }
   }
 
@@ -109,6 +135,9 @@ export class TouchControls {
   recalibrate() {
     this.calibrationBeta = null;
     this.calibrationGamma = null;
+    this._throttleUpTriggered = false;
+    this._throttleDownTriggered = false;
+    this._lastThrottleTrigger = Date.now();
   }
 
   _createUI() {
@@ -121,18 +150,11 @@ export class TouchControls {
     `;
 
     this.container.innerHTML = `
-      <!-- Left side: Throttle -->
+      <!-- Left side: Altitude -->
       <div style="position:absolute; left:16px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:12px; pointer-events:auto;">
-        ${this._btn('throttleUp', '▲', '60px', '60px', '#00e5ff')}
-        <div style="text-align:center; font-family:'Share Tech Mono',monospace; font-size:10px; color:rgba(0,229,255,0.5); letter-spacing:0.1em;">SPD</div>
-        ${this._btn('throttleDown', '▼', '60px', '60px', '#00e5ff')}
-      </div>
-
-      <!-- Left side lower: Altitude -->
-      <div style="position:absolute; left:90px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:12px; pointer-events:auto;">
-        ${this._btn('altUp', '⬆', '50px', '50px', '#76ff03')}
+        ${this._btn('altUp', '▲', '60px', '60px', '#76ff03')}
         <div style="text-align:center; font-family:'Share Tech Mono',monospace; font-size:10px; color:rgba(118,255,3,0.5); letter-spacing:0.1em;">ALT</div>
-        ${this._btn('altDown', '⬇', '50px', '50px', '#76ff03')}
+        ${this._btn('altDown', '▼', '60px', '60px', '#76ff03')}
       </div>
 
       <!-- Right side: Weapons -->
@@ -141,7 +163,7 @@ export class TouchControls {
         ${this._btn('fire', 'FIRE', '90px', '90px', '#ff1744', true)}
       </div>
 
-      <!-- Top center: Calibrate + Pause buttons -->
+      <!-- Top center: Calibrate + Pause -->
       <div style="position:absolute; top:8px; left:50%; transform:translateX(-50%); display:flex; gap:12px; pointer-events:auto;">
         <button id="touch-calibrate" style="
           font-family:'Share Tech Mono',monospace; font-size:10px;
@@ -155,6 +177,16 @@ export class TouchControls {
           border:1px solid rgba(255,171,0,0.2); border-radius:4px;
           padding:6px 14px; letter-spacing:0.1em;
         ">❚❚ PAUSE</button>
+      </div>
+
+      <!-- Bottom center: Tilt indicator -->
+      <div id="tilt-indicator" style="
+        position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+        font-family:'Share Tech Mono',monospace; font-size:9px;
+        color:rgba(0,229,255,0.4); letter-spacing:0.1em;
+        pointer-events:none; text-align:center;
+      ">
+        TILT: L/R steer · FWD/BACK throttle
       </div>
     `;
 
@@ -172,8 +204,7 @@ export class TouchControls {
       setTimeout(() => { calBtn.style.color = 'rgba(0,229,255,0.6)'; }, 300);
     });
 
-    // Pause button — sets a flag that Game._update reads
-    this.pauseRequested = false;
+    // Pause button
     const pauseBtn = this.container.querySelector('#touch-pause');
     pauseBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
@@ -237,13 +268,15 @@ export class TouchControls {
 
   /**
    * Get mobile player input matching the keyboard input contract.
+   * Turn: accelerometer left/right tilt
+   * Throttle: accelerometer push forward / pull back (discrete triggers)
    * @returns {{ turn: number, throttleUp: boolean, throttleDown: boolean, fire: boolean, missile: boolean, altChange: number }}
    */
   getInput() {
     const input = {
-      turn: this.tiltX,  // -1 to 1 from accelerometer
-      throttleUp: this._justPressed.throttleUp,
-      throttleDown: this._justPressed.throttleDown,
+      turn: this.tiltX,  // -1 to 1 from accelerometer L/R
+      throttleUp: this._throttleUpTriggered,   // from accelerometer push forward
+      throttleDown: this._throttleDownTriggered, // from accelerometer pull back
       fire: this.buttons.fire,
       missile: this._justPressed.missile,
       altChange: (this.buttons.altUp ? 1 : 0) + (this.buttons.altDown ? -1 : 0)
@@ -251,8 +284,8 @@ export class TouchControls {
 
     // Clear single-frame triggers
     this._justPressed.missile = false;
-    this._justPressed.throttleUp = false;
-    this._justPressed.throttleDown = false;
+    this._throttleUpTriggered = false;
+    this._throttleDownTriggered = false;
 
     return input;
   }

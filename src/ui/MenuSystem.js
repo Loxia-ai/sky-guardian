@@ -60,7 +60,7 @@ export class MenuSystem {
               color: rgba(255,255,255,0.35); line-height: 1.8; margin: 0;
             ">
               ${this.game.isMobile
-                ? 'TILT to steer · Thumb buttons for FIRE, MISSILE, THROTTLE, ALT<br>Tap CALIBRATE to reset tilt center'
+                ? 'TILT L/R to steer · PUSH/PULL to throttle up/down<br>Thumb buttons: FIRE, MISSILE, ALT up/down<br>Tap CALIBRATE to reset tilt center'
                 : 'P1: A/D turn · W/S throttle up/down · SPACE fire · E missile · R/F altitude<br>P2: ←/→ turn · ↑/↓ throttle · NUM0 fire · NUM. missile · NUM+/- altitude<br>ESC pause'
               }
             </p>
