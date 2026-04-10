@@ -56,6 +56,13 @@ export class Game {
 
     this.input.init();
     this.audio.init();
+    this.isMobile = this.input.isMobile;
+
+    // Initialize touch controls on mobile
+    if (this.isMobile) {
+      await this.input.initTouch(this);
+      this.input.hideTouchControls(); // hidden until gameplay starts
+    }
 
     // Initialize entity manager
     this.entities = new EntityManager();
@@ -128,15 +135,23 @@ export class Game {
   }
 
   _update() {
-    // Pause toggle
-    if (this.input.isPressed('Escape')) {
+    // Pause toggle (keyboard ESC or mobile pause button)
+    const pausePressed = this.input.isPressed('Escape') ||
+      (this.isMobile && this.input.touchControls && this.input.touchControls.pauseRequested);
+
+    if (pausePressed) {
+      // Clear mobile pause flag
+      if (this.input.touchControls) this.input.touchControls.pauseRequested = false;
+
       if (this.state === GAME_STATES.PLAYING) {
         this.state = GAME_STATES.PAUSED;
         this.menu.showPause();
+        if (this.isMobile) this.input.hideTouchControls();
         return;
       } else if (this.state === GAME_STATES.PAUSED) {
         this.state = GAME_STATES.PLAYING;
         this.menu.hidePause();
+        if (this.isMobile) this.input.showTouchControls();
       }
     }
 
@@ -195,6 +210,11 @@ export class Game {
     // Hide menu, start playing
     this.menu.hide();
     this.state = GAME_STATES.PLAYING;
+
+    // Show touch controls on mobile
+    if (this.isMobile) {
+      this.input.showTouchControls();
+    }
   }
 
   addScore(playerIndex, points) {
@@ -206,6 +226,11 @@ export class Game {
   gameOver(won) {
     this.state = won ? GAME_STATES.VICTORY : GAME_STATES.GAME_OVER;
     this.menu.showEndScreen(won, this.score);
+
+    // Hide touch controls during menus
+    if (this.isMobile) {
+      this.input.hideTouchControls();
+    }
   }
 
   /** Convert world coordinates to screen coordinates */

@@ -1,8 +1,7 @@
 import { PLAYER_KEYS } from './Constants.js';
-import { TouchControls } from '../ui/TouchControls.js';
 
 /**
- * Handles keyboard input for 1-2 players, and touch/accelerometer on mobile.
+ * Handles keyboard input for 1-2 players.
  * Tracks key states (pressed/released) per frame.
  */
 export class InputManager {
@@ -16,46 +15,16 @@ export class InputManager {
 
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onKeyUp = this._onKeyUp.bind(this);
-
-    // Mobile support
-    this.isMobile = false;
-    this.touchControls = null;
   }
 
   init() {
-    this.isMobile = this._detectMobile();
-
-    if (this.isMobile) {
-      this.touchControls = new TouchControls(null); // game ref set later
-    }
-
-    // Always listen for keyboard (external keyboards on tablets)
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
-  }
-
-  /** Initialize touch controls (call after game is ready) */
-  async initTouch(game) {
-    if (this.touchControls) {
-      this.touchControls.game = game;
-      await this.touchControls.init();
-    }
-  }
-
-  _detectMobile() {
-    // Check for touch capability + small screen or mobile user agent
-    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    const smallScreen = window.innerWidth <= 1024 && window.innerHeight <= 900;
-    const mobileUA = /Android|iPhone|iPad|iPod|Mobile|webOS/i.test(navigator.userAgent);
-    return hasTouch && (smallScreen || mobileUA);
   }
 
   destroy() {
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
-    if (this.touchControls) {
-      this.touchControls.destroy();
-    }
   }
 
   /** Call at end of each frame to clear per-frame states */
@@ -106,17 +75,10 @@ export class InputManager {
 
   /**
    * Get player input state as a normalized object.
-   * On mobile, player 0 uses touch/accelerometer.
    * @param {number} playerIndex - 0 for P1, 1 for P2
    * @returns {{ turn: number, thrust: number, fire: boolean, missile: boolean, altChange: number }}
    */
   getPlayerInput(playerIndex) {
-    // Mobile: player 0 uses touch controls
-    if (this.isMobile && playerIndex === 0 && this.touchControls) {
-      return this.touchControls.getInput();
-    }
-
-    // Keyboard input
     const keys = playerIndex === 0 ? PLAYER_KEYS.P1 : PLAYER_KEYS.P2;
     let turn = 0;
     let altChange = 0;
@@ -138,14 +100,5 @@ export class InputManager {
       missile: this.isPressed(keys.missile),
       altChange
     };
-  }
-
-  /** Show/hide touch controls */
-  showTouchControls() {
-    if (this.touchControls) this.touchControls.show();
-  }
-
-  hideTouchControls() {
-    if (this.touchControls) this.touchControls.hide();
   }
 }

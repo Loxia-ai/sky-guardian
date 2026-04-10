@@ -35,7 +35,7 @@ export class MenuSystem {
 
           <div style="display: flex; flex-direction: column; gap: 12px; align-items: center;">
             ${this._menuButton('1 PLAYER', 'start-1p')}
-            ${this._menuButton('2 PLAYERS', 'start-2p')}
+            ${this.game.isMobile ? '' : this._menuButton('2 PLAYERS', 'start-2p')}
           </div>
 
           <div style="margin-top: 2.5rem;">
@@ -59,9 +59,10 @@ export class MenuSystem {
               font-family: 'Share Tech Mono', monospace; font-size: 0.7rem;
               color: rgba(255,255,255,0.35); line-height: 1.8; margin: 0;
             ">
-              P1: A/D turn · W/S throttle up/down · SPACE fire · E missile · R/F altitude<br>
-              P2: ←/→ turn · ↑/↓ throttle · NUM0 fire · NUM. missile · NUM+/- altitude<br>
-              ESC pause
+              ${this.game.isMobile
+                ? 'TILT to steer · Thumb buttons for FIRE, MISSILE, THROTTLE, ALT<br>Tap CALIBRATE to reset tilt center'
+                : 'P1: A/D turn · W/S throttle up/down · SPACE fire · E missile · R/F altitude<br>P2: ←/→ turn · ↑/↓ throttle · NUM0 fire · NUM. missile · NUM+/- altitude<br>ESC pause'
+              }
             </p>
           </div>
         </div>
