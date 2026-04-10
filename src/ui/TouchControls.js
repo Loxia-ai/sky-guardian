@@ -72,59 +72,114 @@ export class TouchControls {
     this._orientationHandler = (e) => this._onOrientation(e);
     window.addEventListener('deviceorientation', this._orientationHandler);
     this.hasAccelerometer = true;
+
+    // Auto-recalibrate when screen orientation changes (portrait <-> landscape)
+    this._screenOrientationHandler = () => this.recalibrate();
+    if (screen.orientation) {
+      screen.orientation.addEventListener('change', this._screenOrientationHandler);
+    }
+    window.addEventListener('orientationchange', this._screenOrientationHandler);
+  }
+
+  /**
+   * Get current screen orientation angle.
+   * 0 = portrait, 90 = landscape-left, 180 = portrait-upside-down, 270/-90 = landscape-right
+   */
+  _getScreenAngle() {
+    if (screen.orientation && screen.orientation.angle !== undefined) {
+      return screen.orientation.angle;
+    }
+    // Fallback for older browsers / iOS
+    return window.orientation || 0;
   }
 
   _onOrientation(e) {
-    const beta = e.beta;   // front-back tilt (-180 to 180)
-    const gamma = e.gamma; // left-right tilt (-90 to 90)
+    const rawBeta = e.beta;   // always relative to portrait: front-back tilt
+    const rawGamma = e.gamma; // always relative to portrait: left-right tilt
 
-    if (beta === null || gamma === null) return;
+    if (rawBeta === null || rawGamma === null) return;
+
+    // Remap axes based on screen orientation so that:
+    //   turnAxis  = physical left/right tilt (user tilts device sideways)
+    //   thrustAxis = physical push forward / pull back
+    //
+    // DeviceOrientation always reports in portrait frame, so in landscape
+    // the axes are swapped.
+    const angle = this._getScreenAngle();
+    let turnAxis, thrustAxis;
+
+    switch (angle) {
+      case 90:
+        // Landscape-left (home button on right)
+        // Physical left/right tilt = beta (positive = tilt right)
+        // Physical forward/back = -gamma (positive gamma = pushed forward)
+        turnAxis = rawBeta;
+        thrustAxis = -rawGamma;
+        break;
+      case -90:
+      case 270:
+        // Landscape-right (home button on left)
+        // Physical left/right tilt = -beta
+        // Physical forward/back = gamma
+        turnAxis = -rawBeta;
+        thrustAxis = rawGamma;
+        break;
+      case 180:
+        // Portrait upside-down
+        turnAxis = -rawGamma;
+        thrustAxis = -rawBeta;
+        break;
+      default:
+        // Portrait (0°)
+        turnAxis = rawGamma;
+        thrustAxis = rawBeta;
+        break;
+    }
 
     // Calibrate on first reading (user's natural hold position)
     if (this.calibrationBeta === null) {
-      this.calibrationBeta = beta;
-      this.calibrationGamma = gamma;
+      this.calibrationBeta = thrustAxis;
+      this.calibrationGamma = turnAxis;
     }
 
     // Relative tilt from calibration point
-    const relGamma = gamma - this.calibrationGamma;
-    const relBeta = beta - this.calibrationBeta;
+    const relTurn = turnAxis - this.calibrationGamma;
+    const relThrust = thrustAxis - this.calibrationBeta;
 
-    // === TURN: Gamma (left/right tilt) ===
+    // === TURN: physical left/right tilt ===
     // ±25° = full turn, 3° dead zone
     const turnDeadZone = 3;
     const turnMaxAngle = 25;
 
-    if (Math.abs(relGamma) < turnDeadZone) {
+    if (Math.abs(relTurn) < turnDeadZone) {
       this.tiltX = 0;
     } else {
-      const adjusted = relGamma - Math.sign(relGamma) * turnDeadZone;
+      const adjusted = relTurn - Math.sign(relTurn) * turnDeadZone;
       this.tiltX = Math.max(-1, Math.min(1, adjusted / (turnMaxAngle - turnDeadZone)));
     }
 
-    // === THROTTLE: Beta (push forward / pull back) ===
-    // Push phone forward (top away from you) = positive beta change = throttle UP
-    // Pull phone back (top toward you) = negative beta change = throttle DOWN
-    // Use a threshold to trigger discrete throttle notch changes
-    const throttleDeadZone = 5;  // degrees — ignore small tilts
-    const throttleThreshold = 12; // degrees — trigger a notch change
+    // === THROTTLE: physical push forward / pull back ===
+    // Push forward = positive = throttle UP
+    // Pull back = negative = throttle DOWN
+    const throttleDeadZone = 5;
+    const throttleThreshold = 12;
 
-    if (Math.abs(relBeta) < throttleDeadZone) {
+    if (Math.abs(relThrust) < throttleDeadZone) {
       this.tiltY = 0;
     } else {
-      const adjusted = relBeta - Math.sign(relBeta) * throttleDeadZone;
+      const adjusted = relThrust - Math.sign(relThrust) * throttleDeadZone;
       this.tiltY = Math.max(-1, Math.min(1, adjusted / (30 - throttleDeadZone)));
     }
 
     // Generate discrete throttle triggers when tilt exceeds threshold
     const now = Date.now();
-    const cooldownMs = 400; // minimum ms between throttle notch changes
+    const cooldownMs = 400;
 
     if (now - this._lastThrottleTrigger > cooldownMs) {
-      if (relBeta > throttleThreshold) {
+      if (relThrust > throttleThreshold) {
         this._throttleUpTriggered = true;
         this._lastThrottleTrigger = now;
-      } else if (relBeta < -throttleThreshold) {
+      } else if (relThrust < -throttleThreshold) {
         this._throttleDownTriggered = true;
         this._lastThrottleTrigger = now;
       }
@@ -301,6 +356,12 @@ export class TouchControls {
   destroy() {
     if (this._orientationHandler) {
       window.removeEventListener('deviceorientation', this._orientationHandler);
+    }
+    if (this._screenOrientationHandler) {
+      if (screen.orientation) {
+        screen.orientation.removeEventListener('change', this._screenOrientationHandler);
+      }
+      window.removeEventListener('orientationchange', this._screenOrientationHandler);
     }
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
