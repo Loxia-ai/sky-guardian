@@ -157,24 +157,29 @@ export class TouchControls {
    *     screen.orientation is missing and window.orientation may be 0)
    */
   _getScreenAngle() {
-    // 1. Standard API (not supported on iOS Safari)
+    // 1. Standard API (Android, desktop — NOT supported on iOS Safari)
     if (screen.orientation && typeof screen.orientation.angle === 'number') {
       return screen.orientation.angle;
     }
 
-    // 2. Legacy API — iOS Safari typically supports this
-    if (typeof window.orientation === 'number' && window.orientation !== 0) {
-      // Normalize -90 → 270
-      return window.orientation < 0 ? window.orientation + 360 : window.orientation;
+    // 2. Legacy API — iOS Safari supports this and returns ±90 in landscape
+    if (typeof window.orientation === 'number') {
+      // window.orientation: 0=portrait, 90=landscape-left, -90=landscape-right, 180=upside-down
+      if (window.orientation !== 0) {
+        return window.orientation < 0 ? window.orientation + 360 : window.orientation;
+      }
     }
 
-    // 3. Viewport heuristic — if window.orientation returned 0 or is missing,
-    //    detect landscape from viewport dimensions. This catches iPadOS where
-    //    both APIs above may report 0 even in landscape.
-    if (window.innerWidth > window.innerHeight) {
-      // We can't distinguish left vs right landscape from dimensions alone,
-      // but 90 (landscape-left / home-button-right) is the most common.
-      // The calibration system compensates for sign differences.
+    // 3. Viewport heuristic for iPadOS where window.orientation may be 0 in landscape
+    //    Use matchMedia which iOS Safari supports reliably
+    const isLandscape = window.matchMedia
+      ? window.matchMedia('(orientation: landscape)').matches
+      : window.innerWidth > window.innerHeight;
+
+    if (isLandscape) {
+      // Can't distinguish left vs right from viewport alone.
+      // Default to 90 — the calibration system + sign detection in
+      // _onOrientation will handle direction correction.
       return 90;
     }
 
@@ -196,32 +201,55 @@ export class TouchControls {
     const angle = this._getScreenAngle();
     let turnAxis, thrustAxis;
 
+    // === Axis mapping per orientation ===
+    //
+    // DeviceOrientation always reports in the DEVICE's native portrait frame:
+    //   beta  = front/back tilt (0 flat → 90 upright)
+    //   gamma = left/right tilt (-90 left → +90 right)
+    //
+    // We need physical-world axes:
+    //   turnAxis:   positive = user tilts RIGHT, negative = tilts LEFT
+    //   thrustAxis: positive = user pushes device FORWARD (away), negative = pulls BACK
+    //
+    // The calibration system handles the neutral hold angle, so we only need
+    // correct SIGN (direction) for each axis.
+
     switch (angle) {
-      case 90:
-        // Landscape-left (home button on right)
-        // Physical left/right tilt = beta (positive = tilt right)
-        // Physical forward/back = -gamma (positive gamma = pushed forward)
+      case 90: {
+        // Landscape-left: device rotated 90° CW (home button on right)
+        // User's physical left/right tilt rotates around device Y-axis = beta
+        //   Tilt right → beta increases → positive ✓
+        // User's physical forward/back push rotates around device X-axis = gamma
+        //   Push forward → gamma becomes more negative
+        //   So thrustAxis = -rawGamma → positive when pushed forward ✓
         turnAxis = rawBeta;
         thrustAxis = -rawGamma;
         break;
+      }
       case -90:
-      case 270:
-        // Landscape-right (home button on left)
-        // Physical left/right tilt = -beta
-        // Physical forward/back = gamma
+      case 270: {
+        // Landscape-right: device rotated 90° CCW (home button on left)
+        // Everything is mirrored from landscape-left
+        //   Tilt right → beta decreases → turnAxis = -rawBeta ✓
+        //   Push forward → gamma becomes more positive → thrustAxis = rawGamma ✓
         turnAxis = -rawBeta;
         thrustAxis = rawGamma;
         break;
-      case 180:
+      }
+      case 180: {
         // Portrait upside-down
         turnAxis = -rawGamma;
         thrustAxis = -rawBeta;
         break;
-      default:
+      }
+      default: {
         // Portrait (0°)
+        //   Tilt right → gamma positive ✓
+        //   Push forward → beta increases ✓
         turnAxis = rawGamma;
         thrustAxis = rawBeta;
         break;
+      }
     }
 
     // Calibrate on first reading (user's natural hold position)
