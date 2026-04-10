@@ -27,9 +27,20 @@ export class MovementSystem {
     for (const target of entities.targets) {
       target.updateRoute(dt);
 
-      // Remove if route complete and out of bounds
-      if (target.routeComplete || target.isOutOfBounds(WORLD_WIDTH, WORLD_HEIGHT)) {
+      // Remove only if out of bounds (NOT on route complete — they attack the site)
+      if (target.isOutOfBounds(WORLD_WIDTH, WORLD_HEIGHT)) {
         target.kill();
+      }
+
+      // Targets that completed their route linger at the site attacking
+      // They are destroyed by the collision system's site defense counter-damage
+      // or after a maximum linger time
+      if (target.routeComplete) {
+        target.lingerTime = (target.lingerTime || 0) + dt;
+        // Self-destruct after 8 seconds of attacking (kamikaze run complete)
+        if (target.lingerTime > 8) {
+          target.kill();
+        }
       }
     }
 

@@ -15,6 +15,7 @@ export class RenderSystem {
     this._drawBackground(ctx);
     this._drawGrid(ctx);
     this._drawDefenseSites(ctx);
+    this._drawSiteThreats(ctx);
     this._drawRadarCones(ctx);
     this._drawTargets(ctx);
     this._drawBullets(ctx);
@@ -111,6 +112,53 @@ export class RenderSystem {
       ctx.font = '10px "Share Tech Mono", monospace';
       ctx.textAlign = 'center';
       ctx.fillText(site.name, site.pos.x, barY + 14);
+    }
+  }
+
+  _drawSiteThreats(ctx) {
+    const targets = this.game.entities.targets;
+    const sites = this.game.entities.defenseSites;
+
+    for (const site of sites) {
+      if (site.dead) continue;
+
+      // Check if any target is approaching this site
+      let closestDist = Infinity;
+      let threatened = false;
+      for (const target of targets) {
+        if (target.dead) continue;
+        const dist = target.pos.distanceTo(site.pos);
+        if (dist < closestDist) closestDist = dist;
+        if (dist < 200) threatened = true;
+      }
+
+      if (!threatened) continue;
+
+      // Pulsing warning ring
+      const pulse = 0.4 + Math.sin(this.game.elapsed * 6) * 0.3;
+      const urgency = Math.max(0, 1 - closestDist / 200);
+
+      // Outer threat ring
+      ctx.beginPath();
+      ctx.arc(site.pos.x, site.pos.y, site.size + 20 + Math.sin(this.game.elapsed * 4) * 5, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 23, 68, ${pulse * urgency})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Warning text
+      if (closestDist < 100) {
+        ctx.fillStyle = `rgba(255, 23, 68, ${0.6 + Math.sin(this.game.elapsed * 8) * 0.4})`;
+        ctx.font = 'bold 11px "Share Tech Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('UNDER ATTACK', site.pos.x, site.pos.y - site.size - 20);
+      } else {
+        ctx.fillStyle = `rgba(255, 171, 0, ${0.4 + Math.sin(this.game.elapsed * 5) * 0.3})`;
+        ctx.font = '9px "Share Tech Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('THREAT INBOUND', site.pos.x, site.pos.y - site.size - 16);
+      }
     }
   }
 

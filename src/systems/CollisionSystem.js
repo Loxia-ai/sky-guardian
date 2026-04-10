@@ -115,6 +115,8 @@ export class CollisionSystem {
 
   /**
    * Targets that reach defense sites deal damage.
+   * Targets dive to low altitude on approach (handled by Target._updateAltitude).
+   * Burst damage on first contact + continuous DPS while lingering.
    */
   _checkTargetAttacks(dt) {
     const targets = this.game.entities.targets;
@@ -127,18 +129,47 @@ export class CollisionSystem {
         if (site.dead) continue;
 
         const dist = target.pos.distanceTo(site.pos);
-        // If target is close to defense site and at low enough altitude
-        if (dist < site.size + target.size + 20 && target.altitude < 3000) {
-          site.takeDamage(target.damage * dt * 2);
-          // Target also takes some damage from site defenses
-          target.takeDamage(5 * dt);
+        // Generous proximity: targets near the site and at low-enough altitude deal damage
+        // Altitude check is lenient — the attack dive brings them low, but even
+        // partial dives should still deal reduced damage
+        const proximityRadius = site.size + target.size + 60;
+        const inRange = dist < proximityRadius;
+        const altitudeFactor = target.altitude < 500 ? 1.0
+          : target.altitude < 2000 ? 0.7
+          : target.altitude < 5000 ? 0.3
+          : 0.1; // even high-altitude bombers do some damage if in range
+
+        if (inRange) {
+          // Burst damage on first contact with this site
+          if (!target._hitSites) target._hitSites = new Set();
+          if (!target._hitSites.has(site.id)) {
+            target._hitSites.add(site.id);
+            // Impact burst: significant one-time damage
+            const burstDamage = target.damage * 1.5 * altitudeFactor;
+            site.takeDamage(burstDamage);
+            this._spawnExplosion(
+              (target.pos.x + site.pos.x) / 2,
+              (target.pos.y + site.pos.y) / 2,
+              25
+            );
+            this.game.audio.playExplosion(0.6);
+          }
+
+          // Continuous DPS while target lingers near site
+          const dps = target.damage * altitudeFactor;
+          site.takeDamage(dps * dt);
+
+          // Site defenses fight back — kill target faster
+          target.takeDamage(25 * dt);
 
           if (target.dead) {
-            this._spawnExplosion(target.pos.x, target.pos.y, target.size);
+            this._spawnExplosion(target.pos.x, target.pos.y, target.size + 10);
+            this.game.audio.playExplosion(0.8);
           }
 
           if (site.dead) {
             this._spawnExplosion(site.pos.x, site.pos.y, 50, 1.0);
+            this.game.audio.playExplosion(1.0);
             this._checkGameOver();
           }
         }

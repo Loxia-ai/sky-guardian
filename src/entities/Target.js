@@ -164,18 +164,27 @@ export class Target extends Entity {
   }
 
   _updateAltitude() {
-    if (this.altitudeChanges.length === 0) return;
-    // Find the applicable altitude for current route progress
     let targetAlt = this.baseAltitude;
+
+    // Apply scripted altitude changes
     for (const change of this.altitudeChanges) {
       if (this.routeProgress >= change.t) {
         targetAlt = change.alt;
       }
     }
-    // Smoothly transition
+
+    // Attack dive: in the last 25% of route, descend to attack altitude
+    // This ensures all target types can actually hit ground-level defense sites
+    if (this.routeProgress > 0.75) {
+      const diveProgress = (this.routeProgress - 0.75) / 0.25; // 0 to 1
+      const attackAltitude = 200; // low attack altitude
+      targetAlt = targetAlt + (attackAltitude - targetAlt) * diveProgress;
+    }
+
+    // Smoothly transition altitude (faster rate for responsive diving)
     const diff = targetAlt - this.altitude;
     if (Math.abs(diff) > 10) {
-      this.altitude += Math.sign(diff) * Math.min(200 * 0.016, Math.abs(diff));
+      this.altitude += Math.sign(diff) * Math.min(3000 * 0.016, Math.abs(diff));
     }
   }
 
