@@ -182,60 +182,48 @@ export class TouchControls {
 
     if (rawBeta === null || rawGamma === null) return;
 
-    // === Platform-dependent axis mapping ===
+    // === Axis mapping based on screen orientation ===
     //
-    // KEY DIFFERENCE:
-    //   iOS/iPadOS: beta/gamma are ALREADY adjusted for screen orientation.
-    //     gamma = left/right tilt, beta = forward/back — in ANY orientation.
-    //     We must NOT remap axes on iOS or we'll double-transform.
-    //
-    //   Android: beta/gamma are always in the device's NATIVE portrait frame.
-    //     In landscape, the axes are physically swapped, so we must remap.
+    // DeviceOrientation reports beta/gamma in the DEVICE's native portrait frame
+    // on BOTH iOS and Android. In landscape the physical axes are swapped.
     //
     // We need:
     //   turnAxis:   positive = user tilts RIGHT, negative = tilts LEFT
-    //   thrustAxis: positive = user pushes device FORWARD (away), negative = pulls BACK
-
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    //   thrustAxis: positive = user pushes FORWARD (away), negative = pulls BACK
+    //
+    // Detection: use _getScreenAngle() which checks screen.orientation,
+    // window.orientation, and matchMedia as fallbacks.
 
     const angle = this._getScreenAngle();
     let turnAxis, thrustAxis;
 
-    if (isIOS) {
-      // iOS already compensates for screen orientation in the sensor values.
-      // gamma = left/right tilt (positive = right), beta = forward/back tilt.
-      // This works in ALL orientations on iOS without remapping.
-      turnAxis = rawGamma;
-      thrustAxis = rawBeta;
-    } else {
-      // Android: remap based on screen orientation angle
-      switch (angle) {
-        case 90: {
-          // Landscape-left (home/nav on right, device rotated CW)
-          turnAxis = rawBeta;
-          thrustAxis = -rawGamma;
-          break;
-        }
-        case -90:
-        case 270: {
-          // Landscape-right (home/nav on left, device rotated CCW)
-          turnAxis = -rawBeta;
-          thrustAxis = rawGamma;
-          break;
-        }
-        case 180: {
-          // Portrait upside-down
-          turnAxis = -rawGamma;
-          thrustAxis = -rawBeta;
-          break;
-        }
-        default: {
-          // Portrait (0°)
-          turnAxis = rawGamma;
-          thrustAxis = rawBeta;
-          break;
-        }
+    switch (angle) {
+      case 90: {
+        // Landscape-left: device rotated 90° CW
+        // Physical left/right tilt = beta axis
+        // Physical forward/back = gamma axis (inverted)
+        turnAxis = rawBeta;
+        thrustAxis = -rawGamma;
+        break;
+      }
+      case -90:
+      case 270: {
+        // Landscape-right: device rotated 90° CCW
+        turnAxis = -rawBeta;
+        thrustAxis = rawGamma;
+        break;
+      }
+      case 180: {
+        // Portrait upside-down
+        turnAxis = -rawGamma;
+        thrustAxis = -rawBeta;
+        break;
+      }
+      default: {
+        // Portrait (0°) — no remapping needed
+        turnAxis = rawGamma;
+        thrustAxis = rawBeta;
+        break;
       }
     }
 
@@ -313,10 +301,10 @@ export class TouchControls {
       `;
       document.body.appendChild(this._debugEl);
     }
-    const isIOS_ = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const w = window.innerWidth, h = window.innerHeight;
+    const mL = window.matchMedia?.('(orientation: landscape)').matches;
     this._debugEl.textContent =
-      `iOS:${isIOS_} angle:${angle} wO:${window.orientation??'?'}\n` +
+      `ang:${angle} wO:${window.orientation??'?'} mL:${mL} ${w}x${h}\n` +
       `β:${rawBeta?.toFixed(1)} γ:${rawGamma?.toFixed(1)}\n` +
       `turn:${turnAxis?.toFixed(1)} thr:${thrustAxis?.toFixed(1)}\n` +
       `rel T:${relTurn?.toFixed(1)} R:${relThrust?.toFixed(1)}\n` +
