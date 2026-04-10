@@ -163,27 +163,17 @@ export class TouchControls {
     }
 
     // 2. Legacy API — iOS Safari supports this and returns ±90 in landscape
-    if (typeof window.orientation === 'number') {
-      // window.orientation: 0=portrait, 90=landscape-left, -90=landscape-right, 180=upside-down
-      if (window.orientation !== 0) {
-        return window.orientation < 0 ? window.orientation + 360 : window.orientation;
-      }
+    if (typeof window.orientation === 'number' && window.orientation !== 0) {
+      return window.orientation < 0 ? window.orientation + 360 : window.orientation;
     }
 
-    // 3. Viewport heuristic for iPadOS where window.orientation may be 0 in landscape
-    //    Use matchMedia which iOS Safari supports reliably
+    // 3. Viewport / matchMedia heuristic for iPadOS
+    //    Check EVERY call (not cached) so it adapts to rotation
     const isLandscape = window.matchMedia
       ? window.matchMedia('(orientation: landscape)').matches
       : window.innerWidth > window.innerHeight;
 
-    if (isLandscape) {
-      // Can't distinguish left vs right from viewport alone.
-      // Default to 90 — the calibration system + sign detection in
-      // _onOrientation will handle direction correction.
-      return 90;
-    }
-
-    return 0; // portrait
+    return isLandscape ? 90 : 0;
   }
 
   _onOrientation(e) {
@@ -262,6 +252,9 @@ export class TouchControls {
     const relTurn = turnAxis - this.calibrationGamma;
     const relThrust = thrustAxis - this.calibrationBeta;
 
+    // Debug overlay — shows sensor values on screen for diagnostics
+    this._updateDebugOverlay(angle, rawBeta, rawGamma, turnAxis, thrustAxis, relTurn, relThrust);
+
     // === TURN: physical left/right tilt ===
     // ±25° = full turn, 3° dead zone
     const turnDeadZone = 3;
@@ -309,6 +302,26 @@ export class TouchControls {
     this._throttleUpTriggered = false;
     this._throttleDownTriggered = false;
     this._lastThrottleTrigger = Date.now();
+  }
+
+  /** Debug overlay — shows accelerometer values on screen. Remove after debugging. */
+  _updateDebugOverlay(angle, rawBeta, rawGamma, turnAxis, thrustAxis, relTurn, relThrust) {
+    if (!this._debugEl) {
+      this._debugEl = document.createElement('div');
+      this._debugEl.style.cssText = `
+        position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+        z-index: 9999; background: rgba(0,0,0,0.85); color: #0f0;
+        font: 11px/1.4 monospace; padding: 6px 10px; border-radius: 6px;
+        pointer-events: none; white-space: pre;
+      `;
+      document.body.appendChild(this._debugEl);
+    }
+    this._debugEl.textContent =
+      `angle:${angle} wO:${window.orientation??'?'} mL:${window.matchMedia?.('(orientation: landscape)').matches??'?'}\n` +
+      `β:${rawBeta?.toFixed(1)} γ:${rawGamma?.toFixed(1)}\n` +
+      `turn:${turnAxis?.toFixed(1)} thr:${thrustAxis?.toFixed(1)}\n` +
+      `rel T:${relTurn?.toFixed(1)} R:${relThrust?.toFixed(1)}\n` +
+      `tiltX:${this.tiltX?.toFixed(2)} tiltY:${this.tiltY?.toFixed(2)}`;
   }
 
   _createUI() {
