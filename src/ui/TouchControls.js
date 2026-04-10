@@ -48,13 +48,54 @@ export class TouchControls {
 
   async init() {
     this._createUI();
-    await this._initAccelerometer();
+    this._initAccelerometer();
   }
 
-  async _initAccelerometer() {
-    // iOS 13+ requires permission
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
+  /**
+   * Initialize accelerometer.
+   * On iOS 13+ the permission must be requested from a user gesture (tap).
+   * We detect this and show a one-time "Enable Tilt" button instead of
+   * auto-requesting (which Safari silently rejects).
+   */
+  _initAccelerometer() {
+    this._needsIOSPermission = (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function');
+
+    if (this._needsIOSPermission) {
+      // Show a button the user must tap (user gesture requirement)
+      this._showIOSPermissionButton();
+    } else if ('DeviceOrientationEvent' in window) {
+      // Android / non-iOS — just start
+      this._startAccelerometer();
+    }
+  }
+
+  /** Show a one-time iOS permission button that the user taps to enable tilt */
+  _showIOSPermissionButton() {
+    const btn = document.createElement('button');
+    btn.id = 'ios-tilt-permission';
+    btn.textContent = '🔄 TAP TO ENABLE TILT CONTROLS';
+    btn.style.cssText = `
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 200; padding: 18px 32px; border-radius: 10px;
+      font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; font-weight: 700;
+      color: #00e5ff; background: rgba(0, 30, 60, 0.95);
+      border: 2px solid rgba(0, 229, 255, 0.5);
+      letter-spacing: 0.1em; cursor: pointer;
+      animation: pulse-glow 2s ease-in-out infinite;
+    `;
+
+    // Add pulse animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse-glow {
+        0%, 100% { box-shadow: 0 0 15px rgba(0,229,255,0.3); }
+        50% { box-shadow: 0 0 30px rgba(0,229,255,0.6); }
+      }
+    `;
+    document.head.appendChild(style);
+
+    btn.addEventListener('click', async () => {
       try {
         const perm = await DeviceOrientationEvent.requestPermission();
         if (perm === 'granted') {
@@ -63,9 +104,12 @@ export class TouchControls {
       } catch (e) {
         console.warn('Accelerometer permission denied:', e);
       }
-    } else if ('DeviceOrientationEvent' in window) {
-      this._startAccelerometer();
-    }
+      // Remove button regardless of result
+      btn.remove();
+      style.remove();
+    });
+
+    document.body.appendChild(btn);
   }
 
   _startAccelerometer() {

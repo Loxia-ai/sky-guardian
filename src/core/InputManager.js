@@ -43,11 +43,12 @@ export class InputManager {
   }
 
   _detectMobile() {
-    // Check for touch capability + small screen or mobile user agent
     const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     const smallScreen = window.innerWidth <= 1024 && window.innerHeight <= 900;
     const mobileUA = /Android|iPhone|iPad|iPod|Mobile|webOS/i.test(navigator.userAgent);
-    return hasTouch && (smallScreen || mobileUA);
+    // iPadOS 13+ reports as desktop Mac but has touch points
+    const isIPad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    return hasTouch && (smallScreen || mobileUA || isIPad);
   }
 
   destroy() {
