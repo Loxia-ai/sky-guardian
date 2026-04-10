@@ -118,23 +118,67 @@ export class TouchControls {
     this.hasAccelerometer = true;
 
     // Auto-recalibrate when screen orientation changes (portrait <-> landscape)
+    // Use three listeners for maximum iOS/Android compatibility:
+    //  1. screen.orientation.change — standard (Android, desktop)
+    //  2. orientationchange — legacy (most iOS)
+    //  3. resize — final fallback (iPadOS may skip orientationchange but always fires resize)
     this._screenOrientationHandler = () => this.recalibrate();
     if (screen.orientation) {
       screen.orientation.addEventListener('change', this._screenOrientationHandler);
     }
     window.addEventListener('orientationchange', this._screenOrientationHandler);
+
+    // Debounced resize handler — detects orientation change on iPadOS
+    this._lastWidth = window.innerWidth;
+    this._lastHeight = window.innerHeight;
+    this._resizeHandler = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      // Only recalibrate if the aspect ratio flipped (actual rotation, not keyboard)
+      const wasLandscape = this._lastWidth > this._lastHeight;
+      const isLandscape = w > h;
+      if (wasLandscape !== isLandscape) {
+        this._lastWidth = w;
+        this._lastHeight = h;
+        this.recalibrate();
+      }
+    };
+    window.addEventListener('resize', this._resizeHandler);
   }
 
   /**
    * Get current screen orientation angle.
    * 0 = portrait, 90 = landscape-left, 180 = portrait-upside-down, 270/-90 = landscape-right
+   *
+   * Priority:
+   *  1. screen.orientation.angle (Android, desktop) — most reliable
+   *  2. window.orientation (legacy, still works on most iOS)
+   *  3. Viewport dimension heuristic (final fallback for iPadOS where
+   *     screen.orientation is missing and window.orientation may be 0)
    */
   _getScreenAngle() {
-    if (screen.orientation && screen.orientation.angle !== undefined) {
+    // 1. Standard API (not supported on iOS Safari)
+    if (screen.orientation && typeof screen.orientation.angle === 'number') {
       return screen.orientation.angle;
     }
-    // Fallback for older browsers / iOS
-    return window.orientation || 0;
+
+    // 2. Legacy API — iOS Safari typically supports this
+    if (typeof window.orientation === 'number' && window.orientation !== 0) {
+      // Normalize -90 → 270
+      return window.orientation < 0 ? window.orientation + 360 : window.orientation;
+    }
+
+    // 3. Viewport heuristic — if window.orientation returned 0 or is missing,
+    //    detect landscape from viewport dimensions. This catches iPadOS where
+    //    both APIs above may report 0 even in landscape.
+    if (window.innerWidth > window.innerHeight) {
+      // We can't distinguish left vs right landscape from dimensions alone,
+      // but 90 (landscape-left / home-button-right) is the most common.
+      // The calibration system compensates for sign differences.
+      return 90;
+    }
+
+    return 0; // portrait
   }
 
   _onOrientation(e) {
@@ -406,6 +450,9 @@ export class TouchControls {
         screen.orientation.removeEventListener('change', this._screenOrientationHandler);
       }
       window.removeEventListener('orientationchange', this._screenOrientationHandler);
+    }
+    if (this._resizeHandler) {
+      window.removeEventListener('resize', this._resizeHandler);
     }
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
