@@ -82,6 +82,12 @@ export class Missile extends Entity {
         const diff = angleDiff(this.heading, desiredAngle);
         const maxTurn = this.turnRate * dt;
         this.heading += clamp(diff, -maxTurn, maxTurn);
+
+        // Guide altitude toward target
+        const altDiff = target.altitude - this.altitude;
+        if (Math.abs(altDiff) > 50) {
+          this.altitude += Math.sign(altDiff) * Math.min(3000 * dt, Math.abs(altDiff));
+        }
       }
     }
 

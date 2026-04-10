@@ -24,12 +24,22 @@ export class CollisionSystem {
       for (const target of targets) {
         if (target.dead) continue;
 
-        // Altitude check - bullets only hit at similar altitude
+        // Altitude check - bullets converge toward nearby target altitude
         const altDiff = Math.abs(bullet.altitude - target.altitude);
-        if (altDiff > 1000) continue;
-
         const dist = bullet.pos.distanceTo(target.pos);
-        if (dist < bullet.size + target.size) {
+
+        // Auto-converge bullet altitude when close to a target
+        if (dist < 200 && altDiff > 100) {
+          bullet.altitude += Math.sign(target.altitude - bullet.altitude) * 2000 * this.game.deltaTime;
+        }
+
+        if (altDiff > 2000) continue;
+
+        // Altitude proximity bonus: reduce effective distance based on altitude match
+        const altFactor = 1 + altDiff / 5000; // slight penalty for alt mismatch
+        const hitRadius = (bullet.size + target.size) * 1.5;
+
+        if (dist < hitRadius * altFactor) {
           target.takeDamage(bullet.damage);
           bullet.kill();
 
@@ -54,13 +64,39 @@ export class CollisionSystem {
       const target = this.game.entities.get(missile.targetId);
       if (!target || target.dead) continue;
 
-      // Altitude check
+      // Altitude check (generous — missile actively guides altitude)
       const altDiff = Math.abs(missile.altitude - target.altitude);
-      if (altDiff > 1500) continue;
+      if (altDiff > 3000) continue;
 
+      // Swept collision: check along the missile's travel path this frame
+      // to prevent fast missiles from passing through targets
+      const dx = missile.vel.x * this.game.deltaTime;
+      const dy = missile.vel.y * this.game.deltaTime;
+      const moveLen = Math.sqrt(dx * dx + dy * dy);
+      const hitRadius = missile.size + target.size + 8;
+
+      // Current distance check
       const dist = missile.pos.distanceTo(target.pos);
-      if (dist < missile.size + target.size + 5) {
-        target.takeDamage(missile.damage);
+      let hit = dist < hitRadius;
+
+      // Swept check: if missile moved far enough, sample along path
+      if (!hit && moveLen > hitRadius) {
+        const steps = Math.ceil(moveLen / hitRadius);
+        for (let s = 1; s <= steps && !hit; s++) {
+          const t = s / steps;
+          const sx = missile.pos.x - dx * t;
+          const sy = missile.pos.y - dy * t;
+          const sdx = sx - target.pos.x;
+          const sdy = sy - target.pos.y;
+          const sDist = Math.sqrt(sdx * sdx + sdy * sdy);
+          if (sDist < hitRadius) hit = true;
+        }
+      }
+
+      if (hit) {
+        // Apply altitude proximity as damage multiplier (closer alt = more damage)
+        const altMultiplier = altDiff < 500 ? 1.0 : altDiff < 1500 ? 0.8 : 0.5;
+        target.takeDamage(missile.damage * altMultiplier);
         missile.kill();
 
         this._spawnExplosion(
